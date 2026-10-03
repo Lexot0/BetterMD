@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown + LaTeX 渲染器 (稳定版)</title>
+    
+    <!-- 引入 Markdown 解析库 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked-highlight@2/lib/index.umd.js"></script>
+    
+    <!-- 引入代码高亮库 -->
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
+    
+    <!-- 引入 GitHub Markdown 样式 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown-light.min.css">
+
+    <!-- 引入 KaTeX -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+    <style>
+        :root {
+            --primary-color: #0969da;
+            --bg-color: #f6f8fa;
+            --border-color: #d0d7de;
+            --text-color: #24292f;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 100%; /* 稍微加宽以容纳侧边栏 */
+            margin: 0 auto;
+            display: flex;
+            gap: 24px;
+            position: relative;
+        }
+
+        /* 左侧/顶部控制区 */
+        .controls-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .controls {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            position: relative;
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 40px 20px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background-color: #fafbfc;
+        }
+
+        .drop-zone:hover, .drop-zone.drag-over {
+            border-color: var(--primary-color);
+            background-color: #f0f7ff;
+        }
+
+        .drop-zone p {
+            margin: 8px 0;
+            color: #57606a;
+            font-size: 15px;
+        }
+
+        .drop-zone .icon {
+            font-size: 40px;
+            color: #8b949e;
+            margin-bottom: 10px;
+        }
+
+        .drop-zone .highlight1 {
+            color: var(--primary-color);
+            font-weight: 600;
+            text-decoration: underline;
+        }
+         .highlight2 {
+            color: red;
+            font-weight: 500;
+            text-decoration: none-underline;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .file-info {
+            margin-top: 16px;
+            font-size: 14px;
+            color: #57606a;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .file-info.active {
+            display: flex;
+        }
+
+        .btn {
+            padding: 6px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: #f6f8fa;
+            color: var(--text-color);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background-color: #f3f4f6;
+        }
+
+        /* 内容展示区布局 */
+        .content-area {
+            display: flex;
+            gap: 24px;
+            width: 100%;
+            align-items: flex-start;
+        }
+
+        .markdown-wrapper {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 32px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            display: none;
+            min-height: 200px;
+            position: relative;
+            flex: 1; /* 占据剩余空间 */
+        }
+
+        .markdown-wrapper.active {
+            display: block;
+        }
+
+        .markdown-body {
+            max-width: 100% !important;
+            font-size: 16px;
+        }
+
+        /* 目录侧边栏 */
+        .toc-sidebar {
+            width: 250px;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            position: sticky;
+            top: 20px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            display: none; /* 默认隐藏，有标题时显示 */
+        }
+
+        .toc-sidebar.active {
+            display: block;
+        }
+
+        .toc-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #57606a;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .toc-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .toc-item {
+            margin-bottom: 4px;
+        }
+
+        .toc-link {
+            display: block;
+            font-size: 13px;
+            color: #57606a;
+            text-decoration: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .toc-link:hover {
+            background-color: #f3f4f6;
+            color: var(--primary-color);
+        }
+
+        /* 目录层级缩进 */
+        .toc-level-1 { padding-left: 0px; font-weight: 500; }
+        .toc-level-2 { padding-left: 12px; }
+        .toc-level-3 { padding-left: 24px; font-size: 12px; }
+        .toc-level-4 { padding-left: 36px; font-size: 12px; color: #8b949e; }
+
+        .error-msg {
+            color: #cf222e;
+            background-color: #ffebe9;
+            border: 1px solid rgba(27,31,36,0.15);
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 16px;
+            display: none;
+            font-size: 14px;
+        }
+
+        .error-msg.active {
+            display: block;
+        }
+        
+        /* KaTeX 样式微调 */
+        .katex {
+            font-size: 1.1em;
+        }
+        .katex-display {
+            margin: 1em 0;
+            text-align: center;
+        }
+
+        /* --- 加载动画样式 --- */
+        .loading-spinner {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 0;
+            color: var(--primary-color);
+        }
+
+        .loading-spinner.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e1e4e8;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 12px;
+        }
+
+        .loading-text {
+            font-size: 14px;
+            color: #57606a;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 900px) {
+            .content-area {
+                flex-direction: column;
+            }
+            .toc-sidebar {
+                width: 100%;
+                position: static;
+                max-height: 200px;
+                order: -1; /* 在移动端把目录放到文章上方 */
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="controls-container">
+            <div class="controls">
+                <div class="drop-zone" id="dropZone">
+                    <div class="icon">📄</div>
+                    <p>将 Markdown 文件拖拽到此处，或 <span class="highlight1">点击选择文件</span></p>
+                    <span class="highlight2">建议文件大小不要超过50KB</span>
+                    <p style="font-size: 15px; color: #8b949e;">完美支持复杂 LaTeX 公式 (Cases, Matrix 等)</p>
+                </div>
+                <input type="file" id="fileInput" accept=".md,.markdown,.txt">
+                
+                <div class="file-info" id="fileInfo">
+                    <span id="fileName">未选择文件</span>
+                    <button class="btn" id="clearBtn">清除</button>
+                </div>
+
+                <div class="error-msg" id="errorMsg"></div>
+            </div>
+
+            <div class="content-area">
+                <!-- 新增：目录侧边栏 -->
+                <aside class="toc-sidebar" id="tocSidebar">
+                    <div class="toc-title">文章目录</div>
+                    <ul class="toc-list" id="tocList"></ul>
+                </aside>
+
+                <div class="markdown-wrapper" id="markdownWrapper">
+                    <!-- 加载状态容器 -->
+                    <div id="loadingState" class="loading-spinner">
+                        <div class="spinner"></div>
+                        <div class="loading-text">正在解析与渲染...</div>
+                    </div>
+                    
+                    <div id="markdownBody" class="markdown-body"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 核心逻辑：预处理 LaTeX ---
+
+        function extractLatex(text) {
+            const latexBlocks = [];
+            let index = 0;
+            const regex = /\$\$([\s\S]+?)\$\$|\$((?:\\.|[^$])+?)\$/g;
+
+            const processedText = text.replace(regex, (match, blockContent, inlineContent) => {
+                const isBlock = !!blockContent;
+                const content = isBlock ? blockContent : inlineContent;
+                
+                latexBlocks.push({
+                    content: content,
+                    displayMode: isBlock
+                });
+
+                return `@@LATEX${index++}@@`;
+            });
+
+            return { text: processedText, blocks: latexBlocks };
+        }
+
+        function renderLatexPlaceholders(html, latexBlocks) {
+            return html.replace(/@@LATEX(\d+)@@/g, (match, id) => {
+                const block = latexBlocks[id];
+                if (!block) return match;
+
+                try {
+                    return katex.renderToString(block.content, {
+                        throwOnError: false,
+                        displayMode: block.displayMode,
+                        strict: false,
+                        trust: true
+                    });
+                } catch (e) {
+                    return `<span style="color:red" title="${e.message}">${match}</span>`;
+                }
+            });
+        }
+
+        // --- 2. 配置 Marked ---
+
+        const { markedHighlight } = globalThis.markedHighlight;
+        marked.use(markedHighlight({
+            langPrefix: 'hljs language-',
+            highlight(code, lang) {
+                const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+                return hljs.highlight(code, { language }).value;
+            }
+        }));
+
+        marked.use({
+            breaks: true,
+            gfm: true
+        });
+
+        // --- 3. 目录生成逻辑 ---
+
+        function generateTOC(htmlContent) {
+            const tocList = document.getElementById('tocList');
+            const tocSidebar = document.getElementById('tocSidebar');
+            tocList.innerHTML = '';
+            
+            // 创建临时容器解析 HTML
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = htmlContent;
+            
+            // 获取所有 h1-h4 标签
+            const headers = tempDiv.querySelectorAll('h1, h2, h3, h4');
+            
+            if (headers.length === 0) {
+                tocSidebar.classList.remove('active');
+                return htmlContent; // 没有标题，直接返回原内容
+            }
+
+            tocSidebar.classList.add('active');
+            let counter = 0;
+
+            headers.forEach(header => {
+                // 为每个标题生成唯一 ID
+                const id = `heading-${counter++}`;
+                header.id = id;
+                
+                // 获取标题文本（去除可能的 HTML 标签，虽然 marked 生成的通常很干净）
+                const text = header.textContent;
+                const level = parseInt(header.tagName.substring(1)); // 获取 1, 2, 3, 4
+
+                // 创建目录项
+                const li = document.createElement('li');
+                li.className = `toc-item toc-level-${level}`;
+                
+                const a = document.createElement('a');
+                a.href = `#${id}`;
+                a.className = 'toc-link';
+                a.textContent = text;
+                
+                // 点击平滑滚动
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const target = document.getElementById(id);
+                    if (target) {
+                        window.scrollTo({
+                            top: target.offsetTop + 370, // 稍微偏移一点，避免贴顶
+                            behavior: 'smooth'
+                        });
+                    }
+                });
+
+                li.appendChild(a);
+                tocList.appendChild(li);
+            });
+
+            // 返回添加了 ID 的新 HTML
+            return tempDiv.innerHTML;
+        }
+
+        // --- 4. UI 交互逻辑 ---
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const clearBtn = document.getElementById('clearBtn');
+        const markdownWrapper = document.getElementById('markdownWrapper');
+        const markdownBody = document.getElementById('markdownBody');
+        const errorMsg = document.getElementById('errorMsg');
+        const loadingState = document.getElementById('loadingState');
+
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.classList.add('active');
+            setTimeout(() => errorMsg.classList.remove('active'), 5000);
+        }
+
+        function showLoading() {
+            loadingState.classList.add('active');
+            markdownBody.style.opacity = '0.3';
+        }
+
+        function hideLoading() {
+            loadingState.classList.remove('active');
+            markdownBody.style.opacity = '1';
+        }
+
+        function handleFile(file) {
+            if (!file) return;
+
+            const validTypes = ['.md', '.markdown', '.txt'];
+            const ext = '.' + file.name.split('.').pop().toLowerCase();
+            if (!validTypes.includes(ext)) {
+                showError('不支持的文件格式。');
+                return;
+            }
+
+            fileName.textContent = `已选择: ${file.name}`;
+            fileInfo.classList.add('active');
+            errorMsg.classList.remove('active');
+            
+            markdownWrapper.classList.add('active');
+            showLoading();
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const rawText = e.target.result;
+                
+                setTimeout(() => {
+                    try {
+                        // 第一步：提取 LaTeX
+                        const { text: cleanText, blocks } = extractLatex(rawText);
+                        
+                        // 第二步：解析 Markdown
+                        let htmlContent = marked.parse(cleanText);
+                        
+                        // 第三步：还原并渲染 LaTeX
+                        htmlContent = renderLatexPlaceholders(htmlContent, blocks);
+                        
+                        // 第四步：生成目录并注入 ID
+                        htmlContent = generateTOC(htmlContent);
+                        
+                        markdownBody.innerHTML = htmlContent;
+                        
+                        hideLoading();
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    } catch (err) {
+                        console.error(err);
+                        hideLoading();
+                        showError('解析失败: ' + err.message);
+                    }
+                }, 50); 
+            };
+            reader.onerror = () => {
+                hideLoading();
+                showError('文件读取失败');
+            };
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        function resetState() {
+            fileInput.value = '';
+            fileInfo.classList.remove('active');
+            markdownWrapper.classList.remove('active');
+            markdownBody.innerHTML = '';
+            fileName.textContent = '未选择文件';
+            document.getElementById('tocSidebar').classList.remove('active'); // 重置目录
+            hideLoading();
+        }
+
+        // 事件监听
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+
+        clearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetState();
+        });
+
+        window.addEventListener('dragover', (e) => e.preventDefault());
+        window.addEventListener('drop', (e) => e.preventDefault());
+    </script>
+</body>
+</html>
+
+
+
